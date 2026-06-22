@@ -91,7 +91,11 @@ body { background:var(--bg); color:var(--text); font-family:'Segoe UI',sans-seri
 .pts-exact { color:var(--accent2); font-weight:600; }
 .result-section { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); }
 .others-preds { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); }
-.others-title { font-size:11px; color:var(--muted); font-weight:600; margin-bottom:5px; }
+.others-title { font-size:11px; color:var(--muted); font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; }
+.others-title:hover { color:var(--text); }
+.others-toggle { font-size:10px; transition:.2s; }
+.others-body { display:none; margin-top:5px; }
+.others-body.open { display:block; }
 .others-table { width:100%; font-size:11px; border-collapse:collapse; }
 .others-table th { color:var(--muted); font-weight:500; padding:2px 4px; text-align:left; border-bottom:1px solid var(--border); }
 .others-table td { padding:3px 4px; }
@@ -346,7 +350,7 @@ pb { display:block; padding-bottom:70px; }
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <span style="font-size:12px;color:var(--green)" id="save-status"></span>
-      <button class="btn btn-sm admin-only" style="background:var(--green);color:#fff" onclick="syncResults()" id="sync-btn">⚽ Sync resultados</button>
+      <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="syncResults()" id="sync-btn">⚽ Sync resultados</button>
 
     </div>
   </div>
@@ -518,7 +522,7 @@ function startApp() {
   renderAdminSwitcher();
   document.getElementById('save-status-label').textContent =
     isAdmin() ? 'Admin — cambios se guardan automáticamente ☁' : 'Tus predicciones se guardan automáticamente ☁';
-  if(isAdmin()) setTimeout(startAutoSync, 2000);
+  setTimeout(startAutoSync, 2000);
 }
 
 // ── DATOS ──────────────────────────────────────────────────────
@@ -642,6 +646,13 @@ let fbListenerActive = false;
 
 function key(g,i)  { return `G_${g}_${i}`; }
 function kkey(r,i) { return `K_${r}_${i}`; }
+function toggleOthers(uid) {
+  const body = document.getElementById('oth_'+uid);
+  const tog  = document.getElementById('tog_'+uid);
+  if(!body) return;
+  const open = body.classList.toggle('open');
+  if(tog) tog.textContent = open ? '▼' : '▶';
+}
 
 function renderOthersPreds(matchKey, calcPts) {
   if(!session || isAdmin()) return '';
@@ -663,12 +674,17 @@ function renderOthersPreds(matchKey, calcPts) {
       <td class="others-pred-pts" style="color:${ptsColor}">${ptsStr}</td>
     </tr>`;
   }).join('');
+  const uid = matchKey.replace(/[^a-z0-9]/gi,'_');
   return `<div class="others-preds">
-    <div class="others-title">👥 Apuestas de otros jugadores</div>
-    <table class="others-table">
-      <tr><th>Jugador</th><th style="text-align:center">Apuesta</th><th style="text-align:center">Pts</th></tr>
-      ${rows}
-    </table>
+    <div class="others-title" onclick="toggleOthers('${uid}')">
+      👥 Apuestas de otros jugadores <span class="others-toggle" id="tog_${uid}">▶</span>
+    </div>
+    <div class="others-body" id="oth_${uid}">
+      <table class="others-table">
+        <tr><th>Jugador</th><th style="text-align:center">Apuesta</th><th style="text-align:center">Pts</th></tr>
+        ${rows}
+      </table>
+    </div>
   </div>`;
 }
 
@@ -1502,12 +1518,11 @@ function findGroupKey(homeApi, awayApi) {
   return null;
 }
 
-async function syncResults() {
-  if(!isAdmin()) return;
+async function syncResults(auto=false) {
+  if(!session) return;
   const btn=document.getElementById('sync-btn');
-  btn.textContent='⏳ Sincronizando...'; btn.disabled=true;
+  if(btn) { btn.textContent='⏳ Sincronizando...'; btn.disabled=true; }
   try {
-    // Usar proxy CORS para evitar bloqueo del navegador
     const url=`https://corsproxy.io/?${encodeURIComponent('https://api.football-data.org/v4/competitions/WC/matches?season=2026')}`;
     const res=await fetch(url, {headers:{'X-Auth-Token':FD_KEY}});
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1527,25 +1542,65 @@ async function syncResults() {
           actualH: String(swapped?s.away:s.home),
           actualA: String(swapped?s.home:s.away)
         };
+        // También auto-bloquear partidos con resultado
+        updates[`${FB_ROOT}/locks/${k}`]=true;
+        lockedMatches[k]=true;
         count++;
       }
     });
     if(Object.keys(updates).length) {
       await db.ref().update(updates);
-      btn.textContent=`✅ ${count} resultados`;
+      if(btn) btn.textContent=`✅ ${count} resultados`;
     } else {
-      btn.textContent='⚽ Sin nuevos resultados';
+      if(btn) btn.textContent='⚽ Sin nuevos resultados';
     }
   } catch(e) {
-    console.error(e);
-    btn.textContent='❌ Error al sincronizar';
+    console.error('syncResults error:',e);
+    if(btn) btn.textContent='❌ Error al sincronizar';
   }
-  setTimeout(()=>{ btn.textContent='⚽ Sync resultados'; btn.disabled=false; },4000);
+  if(btn) setTimeout(()=>{ btn.textContent='⚽ Sync resultados'; btn.disabled=false; },4000);
+}
+
+// Convierte "dd/mm HH:MM" (hora Chile = UTC-4) a objeto Date UTC
+function parseMatchTime(dateStr) {
+  if(!dateStr || !dateStr.includes(' ')) return null;
+  const [datePart, timePart] = dateStr.split(' ');
+  const [day, month] = datePart.split('/').map(Number);
+  const [hour, min] = timePart.split(':').map(Number);
+  // CLT = UTC-4, sumar 4 horas para obtener UTC
+  return new Date(Date.UTC(2026, month-1, day, hour+4, min));
+}
+
+// Bloquea automáticamente todos los partidos de grupos cuya hora ya pasó
+function autoLockMatches() {
+  const now = new Date();
+  const updates = {};
+  for(const [letter, g] of Object.entries(GROUPS_DATA)) {
+    const matches = groupMatches(letter);
+    for(let i=0; i<matches.length; i++) {
+      const k = key(letter, i);
+      if(lockedMatches[k]) continue;
+      const matchTime = parseMatchTime(g.d[i]);
+      if(matchTime && now >= matchTime) {
+        updates[`${FB_ROOT}/locks/${k}`] = true;
+        lockedMatches[k] = true;
+      }
+    }
+  }
+  if(Object.keys(updates).length) {
+    db.ref().update(updates);
+    renderGroups();
+  }
 }
 
 function startAutoSync() {
-  if(!isAdmin()) return;
-  // No auto-sync al inicio — solo cuando el admin presiona el botón
+  // Auto-lock para todos los usuarios: verifica cada minuto
+  autoLockMatches();
+  setInterval(autoLockMatches, 60 * 1000);
+
+  // Auto-sync de resultados: cualquier usuario, cada 5 minutos
+  syncResults();
+  setInterval(syncResults, 5 * 60 * 1000);
 }
 
 // ── INIT ─────────────────────────────────────────────────────
