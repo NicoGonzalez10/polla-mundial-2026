@@ -1041,13 +1041,9 @@ function renderKnockoutMatch(round,idx) {
       codeHome=!displayHome?bracket?.home:'';
       codeAway=!displayAway?bracket?.away:'';
     } else {
-      // Solo mostrar si el jugador tiene al menos 1 predicción en grupos
-      const hasPreds=currentPlayer&&Object.keys(data[currentPlayer]||{}).some(k=>k.startsWith('G_')&&data[currentPlayer][k].predH!==undefined&&data[currentPlayer][k].predH!=='');
-      if(hasPreds) {
-        const rH=resolveCodePredicted(bracket?.home||''), rA=resolveCodePredicted(bracket?.away||'');
-        displayHome=home||(rH!==bracket?.home?rH:'');
-        displayAway=away||(rA!==bracket?.away?rA:'');
-      }
+      const rH=resolveCode(bracket?.home||''), rA=resolveCode(bracket?.away||'');
+      displayHome=home||(rH!==bracket?.home?rH:'');
+      displayAway=away||(rA!==bracket?.away?rA:'');
       codeHome=!displayHome?bracket?.home:'';
       codeAway=!displayAway?bracket?.away:'';
     }
@@ -1523,8 +1519,8 @@ async function syncResults(auto=false) {
   const btn=document.getElementById('sync-btn');
   if(btn) { btn.textContent='⏳ Sincronizando...'; btn.disabled=true; }
   try {
-    const url=`https://corsproxy.io/?${encodeURIComponent('https://api.football-data.org/v4/competitions/WC/matches?season=2026')}`;
-    const res=await fetch(url, {headers:{'X-Auth-Token':FD_KEY}});
+    const url=`/api/matches`;
+    const res=await fetch(url);
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const json=await res.json();
     const updates={};
