@@ -608,6 +608,20 @@ const R16_FEEDS = [[0,1],[2,3],[4,5],[6,7],[8,9],[10,11],[12,13],[14,15]];
 const QF_FEEDS  = [[0,1],[2,3],[4,5],[6,7]];
 const SF_FEEDS  = [[0,1],[2,3]];
 
+// Fechas y horas de eliminatorias (hora Chile = UTC-4)
+const KNOCKOUT_TIMES = {
+  K_R32_0:'28/06 15:00', K_R32_1:'29/06 16:30', K_R32_2:'29/06 21:00', K_R32_3:'29/06 13:00',
+  K_R32_4:'30/06 17:00', K_R32_5:'30/06 13:00', K_R32_6:'30/06 21:00', K_R32_7:'01/07 12:00',
+  K_R32_8:'01/07 20:00', K_R32_9:'01/07 16:00', K_R32_10:'02/07 19:00',K_R32_11:'02/07 15:00',
+  K_R32_12:'02/07 23:00',K_R32_13:'03/07 18:00',K_R32_14:'03/07 21:30',K_R32_15:'03/07 14:00',
+  K_R16_0:'04/07 17:00', K_R16_1:'04/07 13:00', K_R16_2:'05/07 16:00', K_R16_3:'05/07 20:00',
+  K_R16_4:'06/07 15:00', K_R16_5:'06/07 20:00', K_R16_6:'07/07 12:00', K_R16_7:'07/07 16:00',
+  K_QF_0:'09/07 16:00',  K_QF_1:'10/07 15:00',  K_QF_2:'11/07 17:00',  K_QF_3:'11/07 21:00',
+  K_SF_0:'14/07 15:00',  K_SF_1:'15/07 15:00',
+  K_TP_0:'18/07 17:00',
+  K_FI_0:'19/07 15:00',
+};
+
 const KNOCKOUT_ROUNDS = [
   {id:'R32',label:'R32 — Octavos',matches:16},
   {id:'R16',label:'R16 — 16avos',matches:8},
@@ -1070,8 +1084,11 @@ function renderKnockoutMatch(round,idx) {
         onchange="setKnockout('${round}','${idx}','${field}',this.value)">
     </div>`;
 
+  const ktStr = KNOCKOUT_TIMES[k]||'';
+  const [ktDate,ktTime] = ktStr.split(' ');
+  const ktHtml = ktStr ? `<span style="color:var(--accent2)">📅 ${ktDate}</span>${ktTime?` <span class="match-time">⏰ ${ktTime}</span>`:''}` : '';
   return `<div class="bracket-match ${displayHome||displayAway?'auto-populated':''}">
-    <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${round}-${idx+1} ${locked?'🔒':''}</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${ktHtml} ${locked?'🔒':''}</div>
     ${teamRow(displayHome,codeHome,predH,'predH')}
     ${teamRow(displayAway,codeAway,predA,'predA')}
     <div class="pen-row">🥅 Pen (pred):
@@ -1567,10 +1584,11 @@ function parseMatchTime(dateStr) {
   return new Date(Date.UTC(2026, month-1, day, hour+4, min));
 }
 
-// Bloquea automáticamente todos los partidos de grupos cuya hora ya pasó
+// Bloquea automáticamente todos los partidos cuya hora ya pasó
 function autoLockMatches() {
   const now = new Date();
   const updates = {};
+  // Fase de grupos
   for(const [letter, g] of Object.entries(GROUPS_DATA)) {
     const matches = groupMatches(letter);
     for(let i=0; i<matches.length; i++) {
@@ -1583,9 +1601,19 @@ function autoLockMatches() {
       }
     }
   }
+  // Eliminatorias
+  for(const [k, dateStr] of Object.entries(KNOCKOUT_TIMES)) {
+    if(lockedMatches[k]) continue;
+    const matchTime = parseMatchTime(dateStr);
+    if(matchTime && now >= matchTime) {
+      updates[`${FB_ROOT}/locks/${k}`] = true;
+      lockedMatches[k] = true;
+    }
+  }
   if(Object.keys(updates).length) {
     db.ref().update(updates);
     renderGroups();
+    renderKnockout();
   }
 }
 
